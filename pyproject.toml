@@ -1,0 +1,37 @@
+[project]
+name = "recipe-langchain"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=0.3",
+    "langchain-aws",
+    "python-dotenv",
+    "boto3",
+    "gradio",
+    "pydantic"
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=25.1.0",
+    "flake8>=7.3.0",
+    "ruff>=0.0.260",
+    "isort>=6.0.1"
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+select = ["E", "F", "I", "N", "W"]
+ignore = []
