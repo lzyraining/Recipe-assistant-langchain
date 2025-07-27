@@ -29,6 +29,7 @@ class Recipe(BaseModel):
     instructions: List[str] = Field(description="Step-by-Step cooking instruction")
     servings: str = Field(description="Number of servings")
 
+
 class RecipeRequest(BaseModel):
     name: str = Field(description="Name of the recipe")
 
@@ -46,7 +47,6 @@ def get_recipe(name: str) -> str:
     api_client = get_api_client()
     response = api_client.get_recipe(name)
     data = json.loads(response)[0]
-    logger.info(data)
 
     ingredients = [
         ingredient.strip()
@@ -67,5 +67,4 @@ def get_recipe(name: str) -> str:
         servings=data["servings"],
     ).model_dump_json(indent=2)
 
-    logger.info(f"Recipe found: {recipe}")
     return recipe

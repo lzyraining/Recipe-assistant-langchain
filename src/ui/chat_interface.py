@@ -26,7 +26,12 @@ class ChatUI:
 
         with gr.Blocks(title="Recipe Assistant") as interface:
             gr.Markdown("# Recipe Assistant")
-            gr.Markdown("Ask me about recipes, cooking instructions, or nutritional information!")
+
+            with gr.Row():
+                with gr.Column(scale=8):
+                    gr.Markdown("Ask me about recipes, cooking instructions, or nutritional information!")
+                with gr.Column(scale=1):
+                    streaming_toggle = gr.Checkbox(label="Stream", value=True, interactive=True)
 
             chatbot = gr.Chatbot(
                 label="Chat",
@@ -45,27 +50,34 @@ class ChatUI:
             with gr.Row():
                 clear = gr.Button("Clear Chat")
 
+            def handle_submit(message: str, chat_history, streaming_enabled: bool):
+                """Handle message submission with validation."""
+                # Skip processing if message is empty or only whitespace
+                if not message or not message.strip():
+                    return chat_history, ""
+
+                # Add user message and clear input
+                updated_history, cleared_input = chat_manager.add_user_message(message, chat_history)
+
+                # Process the message
+                if streaming_enabled:
+                    for result in chat_manager.stream_user_message(message, updated_history):
+                        yield result, cleared_input
+                else:
+                    for result in chat_manager.process_user_message(message, updated_history):
+                        yield result, cleared_input
+
             submit.click(
-                fn=chat_manager.add_user_message,
-                inputs=[msg, chatbot],
-                outputs=[chatbot],
-                queue=False,
-            ).then(
-                fn=chat_manager.process_user_message,
-                inputs=[msg, chatbot],
-                outputs=[chatbot],
+                fn=handle_submit,
+                inputs=[msg, chatbot, streaming_toggle],
+                outputs=[chatbot, msg],
                 queue=True,
             )
 
             msg.submit(
-                fn=chat_manager.add_user_message,
-                inputs=[msg, chatbot],
-                outputs=[chatbot],
-                queue=False,
-            ).then(
-                fn=chat_manager.process_user_message,
-                inputs=[msg, chatbot],
-                outputs=[chatbot],
+                fn=handle_submit,
+                inputs=[msg, chatbot, streaming_toggle],
+                outputs=[chatbot, msg],
                 queue=True,
             )
 

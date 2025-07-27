@@ -1,6 +1,5 @@
-import json
 import logging
-from typing import List, Tuple
+from typing import Generator, List, Tuple
 
 from langchain_core.runnables import RunnableSequence
 
@@ -8,6 +7,8 @@ from src.model.llm import get_llm
 from src.tools import ToolCall, Tools
 
 from .prompt import create_recipe_assistant_chat_prompt_template
+from .response_parser import parse_response
+from .streaming_parser import parse_streaming_response
 
 logger = logging.getLogger(__name__)
 
@@ -31,32 +32,108 @@ def get_chain() -> RunnableSequence:
 
 
 def extract_bot_response(bot_response: any) -> Tuple[str, List[ToolCall]]:
-    """Extract the bot response from the LLM output.
+    """Extract the bot response from the LLM output with tool execution.
+
+    This function uses the response parser for data extraction and handles
+    tool execution when tools are ready.
 
     Args:
-        bot_respose (List[dict]): langchain bot response from the LLM
+        bot_response: LangChain bot response from the LLM
 
     Returns:
-        Tuple[str, List[str]]: response text and tool calls
+        Tuple[str, List[ToolCall]]: response text and executed tool calls
     """
-    steps = bot_response.content
-    logger.info(f"Extracting bot response from steps: {steps}")
-    response_text: str = ""
-    tool_calls: List[ToolCall] = []
-    for step in steps:
-        if step.get("type") == "text":
-            response_text = step["text"]
-        elif step.get("type") == "tool_use":
-            tool_name = step["name"]
-            tool_call_id = step["id"]
-            tool_args_str = step.get("partial_json", "{}")
-            tool_args = json.loads(tool_args_str)
+    logger.info("Starting response extraction with parser")
 
-            tool = Tools.tool_registry().get(tool_name)
-            logger.info(f"Invoking tool: {tool_name} with args: {tool_args}")
-            tool_response = tool.invoke(input=tool_args)
+    try:
+        # Parse the response to extract text and tool calls
+        parsed_response = parse_response(bot_response)
 
-            tool_calls.append(
-                ToolCall(name=tool_name, tool_call_id=tool_call_id, tool_response=tool_response, tool_args=tool_args)
-            )
-    return response_text, tool_calls
+        # Execute tools
+        executed_tool_calls = []
+        for tool_call in parsed_response.tool_calls:
+            tool = Tools.tool_registry().get(tool_call.name)
+            if tool:
+                logger.info(
+                    f"Executing tool: {tool_call.name} "
+                    f"(ID: {tool_call.tool_call_id}) with args: {tool_call.tool_args}"
+                )
+                tool_response = tool.invoke(input=tool_call.tool_args)
+
+                # Update the tool_call with the response
+                tool_call.tool_response = tool_response
+
+                executed_tool_calls.append(tool_call)
+                logger.info(f"Tool execution completed: {tool_call.name} (ID: {tool_call.tool_call_id})")
+            else:
+                logger.error(f"Tool {tool_call.name} not found in registry")
+
+        logger.info(
+            f"Response extraction complete. Text length: {len(parsed_response.text)}, "
+            f"Tool calls: {len(executed_tool_calls)}"
+        )
+        return parsed_response.text, executed_tool_calls
+
+    except Exception as e:
+        logger.error(f"Error in response extraction: {e}")
+        return "", []
+
+def extract_bot_response_from_streaming(
+    chunks,
+) -> Generator[Tuple[str, List[ToolCall], bool], None, Tuple[str, List[ToolCall]]]:
+    """Extract bot response from streaming chunks with tool execution.
+
+    This function uses the streaming parser for data extraction and handles
+    tool execution when tools are ready.
+
+    Args:
+        chunks: Iterator of streaming chunks from LLM
+
+    Yields:
+        Tuple[str, List[ToolCall], bool]: (accumulated_text, completed_tool_calls, is_final_chunk)
+
+    Returns:
+        Tuple[str, List[ToolCall]]: Final (complete_text, all_tool_calls)
+    """
+    all_tool_calls = []
+    final_text = ""
+
+    logger.info("Starting streaming response extraction with parser")
+
+    try:
+        for parsed_chunk in parse_streaming_response(chunks):
+            chunk_completed_tools = []
+
+            # Execute completed tools
+            for tool_call in parsed_chunk.completed_tools:
+                tool = Tools.tool_registry().get(tool_call.name)
+                if tool:
+                    logger.info(
+                        f"Executing tool: {tool_call.name} "
+                        f"(ID: {tool_call.tool_call_id}) with args: {tool_call.tool_args}"
+                    )
+                    tool_response = tool.invoke(input=tool_call.tool_args)
+
+                    # Update the tool_call with the response
+                    tool_call.tool_response = tool_response
+
+                    chunk_completed_tools.append(tool_call)
+                    all_tool_calls.append(tool_call)
+                    logger.info(f"Tool execution completed: {tool_call.name} (ID: {tool_call.tool_call_id})")
+                else:
+                    logger.error(f"Tool {tool_call.name} not found in registry")
+
+            final_text = parsed_chunk.accumulated_text
+
+            # Yield current state
+            yield parsed_chunk.accumulated_text, chunk_completed_tools, False
+
+        logger.info(
+            f"Streaming extraction complete. Text length: {len(final_text)}, "
+            f"Tool calls: {len(all_tool_calls)}"
+        )
+        return final_text, all_tool_calls
+
+    except Exception as e:
+        logger.error(f"Error in streaming extraction: {e}")
+        return final_text, all_tool_calls
