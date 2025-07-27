@@ -10,7 +10,8 @@ dependencies = [
     "python-dotenv",
     "boto3",
     "gradio",
-    "pydantic"
+    "pydantic",
+    "requests"
 ]
 
 [project.optional-dependencies]

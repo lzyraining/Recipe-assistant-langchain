@@ -20,8 +20,6 @@ load_dotenv(override=True)
 
 def main():
     try:
-        global chain
-
         # Load configuration with environment variable validation
         logger.info("Loading LLM configuration...")
         config = load_llm_config()
